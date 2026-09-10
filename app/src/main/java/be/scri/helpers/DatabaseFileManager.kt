@@ -88,6 +88,24 @@ class DatabaseFileManager(
         }
     }
 
+    //TODO WITT put in comments here for function
+    fun getDeclensionDatabase(language: String): SQLiteDatabase? {
+        val dbName = "${language}DeclensionData.sqlite"
+        val dbFile = context.getDatabasePath(dbName)
+
+        if (!dbFile.exists()) {
+            Log.w(TAG, "Declension database $dbName not found. User needs to download declension data first")
+            return null
+        }
+
+        return try {
+            SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+        } catch (e: SQLiteException) {
+            Log.e(TAG, "Failed to open declension database $dbName", e)
+            null
+        }
+    }
+
     /**
      * A generic function to get a database. It ensures the database file exists in the app's
      * private storage (copying it from assets if necessary) and then opens a read-only connection.
