@@ -92,4 +92,29 @@ object AnnotationTextUtils {
         language: String,
         text: String,
     ): String = prepAnnotationConversionDict[language]?.get(text) ?: text
+
+    /**
+     * Converts a raw case annotation string into a localized keyword for data filtering.
+     *
+     * This function first maps internal system strings (e.g., "accusative case") to standard
+     * abbreviations (e.g., "Acc"), and then translates those abbreviations based on the
+     * provided language (e.g., returning "Akk" for German). This is primarily used to
+     * filter declension sections in the language's data contract.
+     *
+     * @param language The current keyboard language.
+     * @param annotationText The raw annotation string to convert.
+     * @return A localized abbreviation suitable for matching against declension titles.
+     */
+    fun getLocalizedKeyword(language: String, annotationText: String): String {
+        val keyword = when (annotationText) {
+            "accusative case" -> "Acc"
+            "dative case" -> "Dat"
+            "genitive case" -> "Gen"
+            "locative case" -> "Loc"
+            "Prepositional case" -> "Pre"
+            "Instrumental case" -> "Ins"
+            else -> ""
+        }
+        return processValuesForPreposition(language, keyword)
+    }
 }
