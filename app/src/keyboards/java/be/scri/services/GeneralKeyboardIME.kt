@@ -3,6 +3,7 @@
 package be.scri.services
 
 import DataContract
+import DeclensionNode
 import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
@@ -26,6 +27,7 @@ import androidx.core.content.edit
 import be.scri.R
 import be.scri.activities.MainActivity
 import be.scri.databinding.InputMethodViewBinding
+import be.scri.helpers.AnnotationTextUtils
 import be.scri.helpers.AnnotationTextUtils.handleColorAndTextForNounType
 import be.scri.helpers.AnnotationTextUtils.handleTextForCaseAnnotation
 import be.scri.helpers.AutocompletionHandler
@@ -174,6 +176,9 @@ abstract class GeneralKeyboardIME(
         set(value) {
             dataHandler.conjugateOutput = value
         }
+
+    private var declensionOutput: Map<String, List<DeclensionNode>>? = null
+    private var currentDeclensionSubNodes: List<DeclensionNode>? = null
 
     private var conjugateLabels: Set<String>
         get() = dataHandler.conjugateLabels
@@ -713,6 +718,8 @@ abstract class GeneralKeyboardIME(
             emojiAutoSuggestionEnabled = emojiAutoSuggestionEnabled,
             autoSuggestEmojis = autoSuggestEmojis,
             conjugateOutput = conjugateOutput,
+            declensionOutput = declensionOutput,
+            currentDeclensionSubNodes = currentDeclensionSubNodes,
             conjugateLabels = conjugateLabels,
             selectedConjugationSubCategory = selectedConjugationSubCategory,
             currentVerbForConjugation = currentVerbForConjugation,
@@ -729,6 +736,8 @@ abstract class GeneralKeyboardIME(
         saveConjugateModeType("none")
         currentVerbForConjugation = null
         selectedConjugationSubCategory = null
+        declensionOutput = null
+        currentDeclensionSubNodes = null
         if (this::uiManager.isInitialized) refreshUI()
     }
 
@@ -1491,6 +1500,7 @@ abstract class GeneralKeyboardIME(
                 colorRes = R.color.annotateOrange,
                 buttonText = "PL",
                 textSizeSp = NOUN_TYPE_SIZE,
+                type = null,
             )
             return true
         }
@@ -1577,6 +1587,20 @@ abstract class GeneralKeyboardIME(
         return appliedSomething
     }
 
+    override fun onConjugationCategoryClicked(category: String) {
+        selectedConjugationSubCategory = category
+        refreshUI()
+    }
+
+    override fun onDeclensionNodeClicked(node: DeclensionNode) {
+        currentDeclensionSubNodes = node.declensionForms?.values?.toList()
+        refreshUI()
+    }
+
+    override fun onGridPageChanged() { //TODO WITT changed by Gemini
+        refreshUI()
+    }
+
     /**
      * Configures a single suggestion button with the appropriate text and color based on the suggestion type.
      *
@@ -1595,6 +1619,17 @@ abstract class GeneralKeyboardIME(
                 else -> Pair(R.color.transparent, "")
             }
 
+        if (type == "preposition") {
+            uiManager.binding.translateBtn.setOnClickListener {
+                declensionOutput = dataHandler.declensions?.filter { (title, _) ->
+                    title.contains(AnnotationTextUtils.getLocalizedKeyword(language, suggestionText), ignoreCase = true)
+                }
+
+                stateManager.moveToState(ScribeState.SELECT_DECLENSION)
+                refreshUI()
+            }
+        }
+
         uiManager.genderSuggestionLeft?.visibility = View.INVISIBLE
         uiManager.genderSuggestionRight?.visibility = View.INVISIBLE
 
@@ -1604,6 +1639,7 @@ abstract class GeneralKeyboardIME(
             colorRes = colorRes,
             buttonText = buttonText,
             textSizeSp = NOUN_TYPE_SIZE,
+            type = type
         )
     }
 
