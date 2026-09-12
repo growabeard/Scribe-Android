@@ -41,6 +41,7 @@ import be.scri.helpers.english.ENInterfaceVariables.ALREADY_PLURAL_MSG
 import be.scri.helpers.getCategoryIconRes
 import be.scri.helpers.getRecentEmojis
 import be.scri.helpers.parseRawEmojiSpecsFile
+import be.scri.models.ScribeLanguage
 import be.scri.models.ScribeState
 import be.scri.services.GeneralKeyboardIME
 import be.scri.views.KeyboardView
@@ -511,14 +512,25 @@ class KeyboardUIManager(
 
         val isSubSelection = items.any { it.commitValue != null }
 
+        val scribeLanguage = ScribeLanguage.fromDisplayName(language)
+
         val layoutResId =
             when {
                 isSubSelection -> R.layout.conjugate_grid_2x1
-                language == "English" && items.size <= 4 -> R.layout.conjugate_grid_2x2
-                language in listOf("Russian", "Swedish") && items.size <= 4 -> R.layout.conjugate_grid_2x2
+                scribeLanguage == ScribeLanguage.ENGLISH && items.size <= 4 -> R.layout.conjugate_grid_2x2
+                scribeLanguage in listOf(ScribeLanguage.RUSSIAN, ScribeLanguage.SWEDISH) && items.size <= 4 -> R.layout.conjugate_grid_2x2
                 items.size > 4 -> R.layout.conjugate_grid_3x2
                 else -> R.layout.conjugate_grid_2x2
             }
+
+        val layoutResId =
+                when {
+                    isSubSelection -> R.layout.conjugate_grid_2x1
+                    language == "English" && forms.size <= 4 -> R.layout.conjugate_grid_2x2
+                    language in listOf("Russian", "Swedish") && forms.size <= 4 -> R.layout.conjugate_grid_2x2
+                    forms.size > 4 -> R.layout.conjugate_grid_3x2
+                    else -> R.layout.conjugate_grid_2x2
+                }
 
         val layoutInflater = LayoutInflater.from(context)
         val gridContent = layoutInflater.inflate(layoutResId, grid, false) as LinearLayout

@@ -3,9 +3,11 @@
 package be.scri.services
 
 import DataContract
+import android.app.Dialog
 import DeclensionNode
 import android.content.Context
 import android.content.Intent
+import android.content.res.Resources
 import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
 import android.text.InputType
@@ -13,7 +15,6 @@ import android.text.InputType.TYPE_CLASS_DATETIME
 import android.text.InputType.TYPE_CLASS_NUMBER
 import android.text.InputType.TYPE_CLASS_PHONE
 import android.text.InputType.TYPE_MASK_CLASS
-import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.EditorInfo.IME_ACTION_NONE
@@ -32,11 +33,14 @@ import be.scri.helpers.AnnotationTextUtils.handleColorAndTextForNounType
 import be.scri.helpers.AnnotationTextUtils.handleTextForCaseAnnotation
 import be.scri.helpers.AutocompletionHandler
 import be.scri.helpers.BackspaceHandler
+import be.scri.helpers.CommandHandler
 import be.scri.helpers.DatabaseManagers
 import be.scri.helpers.EmojiUtils.insertEmoji
 import be.scri.helpers.FloatingKeyboardHandler
+import be.scri.helpers.KeyHandler
 import be.scri.helpers.KeyboardBase
 import be.scri.helpers.KeyboardDataHandler
+import be.scri.helpers.KeyboardIMEContext
 import be.scri.helpers.KeyboardLanguageMappingConstants
 import be.scri.helpers.KeyboardStateManager
 import be.scri.helpers.LanguageMappingConstants.getLanguageAlias
@@ -53,7 +57,6 @@ import be.scri.helpers.SHIFT_ON_PERMANENT
 import be.scri.helpers.SuggestionHandler
 import be.scri.helpers.clipboard.ClipboardHandler
 import be.scri.helpers.data.AutocompletionDataManager
-import be.scri.helpers.english.ENInterfaceVariables.ALREADY_PLURAL_MSG
 import be.scri.helpers.recordRecentEmoji
 import be.scri.helpers.ui.KeyboardThemeManager
 import be.scri.helpers.ui.KeyboardUIManager
@@ -67,12 +70,22 @@ private const val DATA_CONSTANT_3 = 3
 
 @Suppress("TooManyFunctions", "LargeClass")
 abstract class GeneralKeyboardIME(
-    val scribeLanguage: ScribeLanguage,
+    override val scribeLanguage: ScribeLanguage,
 ) : InputMethodService(),
     KeyboardView.OnKeyboardActionListener,
     KeyboardUIManager.KeyboardUIListener,
-    KeyboardBase.KeyboardContextProvider {
+    KeyboardBase.KeyboardContextProvider,
+    KeyboardIMEContext {
     constructor(languageName: String) : this(ScribeLanguage.fromDisplayName(languageName))
+
+    override val imeContext: Context
+        get() = applicationContext
+
+    override fun getInputConnection(): InputConnection? = getCurrentInputConnection()
+
+    override fun getImeResources(): Resources = resources
+
+    override fun getImeWindow(): Dialog? = getWindow()
 
     override val language: String
         get() = scribeLanguage.displayName
@@ -81,16 +94,16 @@ abstract class GeneralKeyboardIME(
     abstract override fun getKeyboardLayoutXML(): Int
 
     abstract override val keyboardLetters: Int
-    abstract val keyboardSymbols: Int
-    abstract val keyboardSymbolShift: Int
+    abstract override val keyboardSymbols: Int
+    abstract override val keyboardSymbolShift: Int
 
-    open var keyboard: KeyboardBase? = null
-    var keyboardView: KeyboardView? = null
+    override var keyboard: KeyboardBase? = null
+    override var keyboardView: KeyboardView? = null
 
     // UI Manager instance.
-    lateinit var uiManager: KeyboardUIManager
+    override lateinit var uiManager: KeyboardUIManager
 
-    abstract var lastShiftPressTS: Long
+    abstract override var lastShiftPressTS: Long
     abstract override var keyboardMode: Int
     abstract var inputTypeClass: Int
     abstract var enterKeyType: Int
@@ -119,7 +132,7 @@ abstract class GeneralKeyboardIME(
     private val backspaceHandler = BackspaceHandler(this)
 
     // Bridge for BackspaceHandler to access binding through UI Manager.
-    internal val binding: InputMethodViewBinding
+    override val binding: InputMethodViewBinding
         get() = uiManager.binding
 
     internal val clipboardHandler by lazy { ClipboardHandler(this) }
@@ -136,7 +149,7 @@ abstract class GeneralKeyboardIME(
 
     // MARK: State Variables
 
-    internal var isSingularAndPlural: Boolean = false
+    override var isSingularAndPlural: Boolean = false
     private var subsequentAreaRequired: Boolean = false
     private var subsequentData: MutableList<List<String>> = mutableListOf()
 
@@ -151,9 +164,11 @@ abstract class GeneralKeyboardIME(
         get() = dataHandler.autocompletionManager
 
     private lateinit var nativeSuggestionEngine: NativeSuggestionEngine
-    internal lateinit var suggestionHandler: SuggestionHandler
-    internal lateinit var autocompletionHandler: AutocompletionHandler
+    override lateinit var suggestionHandler: SuggestionHandler
+    override lateinit var autocompletionHandler: AutocompletionHandler
+    internal lateinit var keyHandler: KeyHandler
     internal val floatingKeyboardHandler by lazy { FloatingKeyboardHandler(this) }
+    internal val commandHandler by lazy { CommandHandler(this) }
 
     internal var dataContract: DataContract?
         get() = dataHandler.dataContract
@@ -161,17 +176,15 @@ abstract class GeneralKeyboardIME(
             dataHandler.dataContract = value
         }
 
-    internal val isUiManagerInitialized: Boolean get() = this::uiManager.isInitialized
+    override val isUiManagerInitialized: Boolean get() = this::uiManager.isInitialized
 
-    internal fun recreateKeyboardPublic() = recreateKeyboard()
-
-    var emojiKeywords: HashMap<String, MutableList<String>>?
+    override var emojiKeywords: HashMap<String, MutableList<String>>?
         get() = dataHandler.emojiKeywords
         set(value) {
             dataHandler.emojiKeywords = value
         }
 
-    private var conjugateOutput: MutableMap<String, MutableMap<String, Collection<String>>>?
+    internal var conjugateOutput: MutableMap<String, MutableMap<String, Collection<String>>>?
         get() = dataHandler.conjugateOutput
         set(value) {
             dataHandler.conjugateOutput = value
@@ -180,7 +193,7 @@ abstract class GeneralKeyboardIME(
     private var declensionOutput: Map<String, List<DeclensionNode>>? = null
     private var currentDeclensionSubNodes: List<DeclensionNode>? = null
 
-    private var conjugateLabels: Set<String>
+    internal var conjugateLabels: Set<String>
         get() = dataHandler.conjugateLabels
         set(value) {
             dataHandler.conjugateLabels = value
@@ -192,44 +205,44 @@ abstract class GeneralKeyboardIME(
             dataHandler.emojiMaxKeywordLength = value
         }
 
-    internal var nounKeywords: HashMap<String, List<String>>
+    override var nounKeywords: HashMap<String, List<String>>
         get() = dataHandler.nounKeywords
         set(value) {
             dataHandler.nounKeywords = value
         }
 
-    internal var suggestionWords: HashMap<String, List<String>>
+    override var suggestionWords: HashMap<String, List<String>>
         get() = dataHandler.suggestionWords
         set(value) {
             dataHandler.suggestionWords = value
         }
 
-    var pluralWords: Set<String>?
+    override var pluralWords: Set<String>?
         get() = dataHandler.pluralWords
         set(value) {
             dataHandler.pluralWords = value
         }
 
-    internal var caseAnnotation: HashMap<String, MutableList<String>>
+    override var caseAnnotation: HashMap<String, MutableList<String>>
         get() = dataHandler.caseAnnotation
         set(value) {
             dataHandler.caseAnnotation = value
         }
 
-    var emojiAutoSuggestionEnabled: Boolean = false
-    var lastWord: String? = null
-    var autoSuggestEmojis: MutableList<String>? = null
-    var caseAnnotationSuggestion: MutableList<String>? = null
-    var nounTypeSuggestion: List<String>? = null
-    var wordSuggestions: List<String>? = null
-    var checkIfPluralWord: Boolean = false
+    override var emojiAutoSuggestionEnabled: Boolean = false
+    override var lastWord: String? = null
+    override var autoSuggestEmojis: MutableList<String>? = null
+    override var caseAnnotationSuggestion: MutableList<String>? = null
+    override var nounTypeSuggestion: List<String>? = null
+    override var wordSuggestions: List<String>? = null
+    override var checkIfPluralWord: Boolean = false
     private var currentEnterKeyType: Int? = null
     private var isNumericKeyboardActive: Boolean = false
 
     internal val stateManager = KeyboardStateManager()
     internal val themeManager = KeyboardThemeManager()
 
-    internal var currentState: ScribeState
+    override var currentState: ScribeState
         get() = stateManager.currentState
         set(value) {
             stateManager.currentState = value
@@ -242,13 +255,13 @@ abstract class GeneralKeyboardIME(
         }
 
     // Properties used by BackspaceHandler, delegated to UI Manager.
-    internal var currentCommandBarHint: String
+    override var currentCommandBarHint: String
         get() = uiManager.currentCommandBarHint
         set(value) {
             uiManager.currentCommandBarHint = value
         }
 
-    internal var commandBarHintColor: Int
+    override var commandBarHintColor: Int
         get() = uiManager.commandBarHintColor
         set(value) {
             uiManager.commandBarHintColor = value
@@ -256,7 +269,7 @@ abstract class GeneralKeyboardIME(
 
     // MARK: Conjugation State
 
-    private var currentVerbForConjugation: String? = null
+    internal var currentVerbForConjugation: String? = null
     private var selectedConjugationSubCategory: String? = null
 
     protected open fun isTablet(): Boolean = resources.configuration.smallestScreenWidthDp >= SMALLEST_SCREEN_WIDTH_TABLET
@@ -301,6 +314,7 @@ abstract class GeneralKeyboardIME(
         nativeSuggestionEngine = NativeSuggestionEngine(this)
         suggestionHandler = SuggestionHandler(this)
         autocompletionHandler = AutocompletionHandler(this)
+        keyHandler = KeyHandler(this)
         clipboardHandler.initClipboardMonitor()
     }
 
@@ -566,8 +580,9 @@ abstract class GeneralKeyboardIME(
             keyboardMode = keyboardLetters
             keyboard = KeyboardBase(this, getKeyboardLayoutXML(), enterKeyType, getKeyboardWidth())
             val editorInfo = currentInputEditorInfo
+            val inputConnection = currentInputConnection
             if (editorInfo != null && editorInfo.inputType != InputType.TYPE_NULL && keyboard?.mShiftState != SHIFT_ON_PERMANENT) {
-                if (currentInputConnection.getCursorCapsMode(editorInfo.inputType) != 0) {
+                if (inputConnection != null && inputConnection.getCursorCapsMode(editorInfo.inputType) != 0) {
                     keyboard?.setShifted(SHIFT_ON_ONE_CHAR)
                 }
             }
@@ -588,60 +603,12 @@ abstract class GeneralKeyboardIME(
      * Handles key input from the keyboard. Delegates to specific handlers based on the key code.
      */
     override fun onKey(code: Int) {
-        when (code) {
-            KeyboardBase.KEYCODE_EMOJI -> {
-                openEmojiKeyboard()
-                return
-            }
-            KeyboardBase.KEYCODE_FLOAT_TOGGLE -> {
-                toggleFloatingMode()
-                return
-            }
-            KeyboardBase.KEYCODE_CLIPBOARD -> {
-                openClipboardPanel()
-                return
-            }
-        }
-        val inputConnection = currentInputConnection
-        if (inputConnection != null) {
-            when (code) {
-                KeyboardBase.KEYCODE_DELETE -> handleDelete()
-                KeyboardBase.KEYCODE_SHIFT -> {
-                    if (keyboardMode == keyboardLetters) {
-                        val shiftState = keyboardView?.mKeyboard?.mShiftState ?: SHIFT_OFF
-                        when {
-                            shiftState == SHIFT_ON_PERMANENT -> keyboardView?.setShifted(SHIFT_OFF)
-                            System.currentTimeMillis() - lastShiftPressTS < shiftPermToggleSpeed -> keyboardView?.setShifted(SHIFT_ON_PERMANENT)
-                            shiftState == SHIFT_ON_ONE_CHAR -> keyboardView?.setShifted(SHIFT_OFF)
-                            shiftState == SHIFT_OFF -> keyboardView?.setShifted(SHIFT_ON_ONE_CHAR)
-                        }
-                        lastShiftPressTS = System.currentTimeMillis()
-                    } else {
-                        handleModeChange(keyboardMode, keyboardView, this)
-                    }
-                }
-
-                KeyboardBase.KEYCODE_ENTER -> handleKeycodeEnter()
-                KeyboardBase.KEYCODE_MODE_CHANGE -> handleModeChange(keyboardMode, keyboardView, this)
-                KeyboardBase.KEYCODE_CLIPBOARD -> openClipboardPanel()
-                else -> {
-                    if (KeyboardBase.SCRIBE_VIEW_KEYS.contains(code)) {
-                        val keyLabel = keyboardView?.getKeyLabel(code)
-                        if (!keyLabel.isNullOrEmpty()) {
-                            commitText("$keyLabel ")
-                        }
-                    } else {
-                        val commandBarState = currentState != ScribeState.IDLE && currentState != ScribeState.SELECT_COMMAND
-                        handleElseCondition(code, keyboardMode, commandBarState)
-                    }
-                }
-            }
-        }
+        keyHandler.handleKey(code, language)
     }
 
     // MARK: Helper Methods
 
-    fun openEmojiKeyboard() {
+    override fun openEmojiKeyboard() {
         uiManager.showEmojiPalette(language)
     }
 
@@ -677,7 +644,7 @@ abstract class GeneralKeyboardIME(
         dataHandler.loadLanguageData(language)
     }
 
-    internal fun applyNavBarColor() {
+    override fun applyNavBarColor() {
         themeManager.applyNavBarColor(
             service = this,
             window = window?.window,
@@ -692,12 +659,21 @@ abstract class GeneralKeyboardIME(
      * @param language The current keyboard language.
      * @param isSubsequentArea true if this is for a secondary view.
      */
-    internal fun saveConjugateModeType(
-        language: String = this.language,
-        isSubsequentArea: Boolean = false,
+    override fun saveConjugateModeType(
+        language: String,
+        isSubsequentArea: Boolean,
     ) {
         val sharedPref = applicationContext.getSharedPreferences("keyboard_preferences", MODE_PRIVATE)
-        val mode = if (!isSubsequentArea) defaultConjugateModeType else "none"
+        val mode =
+            if (!isSubsequentArea) {
+                when (language) {
+                    "English", "Russian", "Swedish" -> "2x2"
+                    "German", "French", "Italian", "Portuguese", "Spanish" -> "2x2"
+                    else -> "none"
+                }
+            } else {
+                "none"
+            }
         sharedPref.edit { putString("conjugate_mode_type", mode) }
     }
 
@@ -707,9 +683,9 @@ abstract class GeneralKeyboardIME(
      * The main dispatcher for updating the entire keyboard UI. It calls the appropriate setup function
      * based on the current [ScribeState].
      */
-    internal fun updateUI() = refreshUI()
+    override fun updateUI() = refreshUI()
 
-    private fun refreshUI() {
+    internal fun refreshUI() {
         if (!this::uiManager.isInitialized) return
 
         uiManager.updateUI(
@@ -730,7 +706,7 @@ abstract class GeneralKeyboardIME(
     /**
      * Transitions the keyboard to the `IDLE` state and updates the UI.
      */
-    internal fun moveToIdleState() {
+    override fun moveToIdleState() {
         clearSuggestionData()
         stateManager.moveToIdle()
         saveConjugateModeType("none")
@@ -802,7 +778,9 @@ abstract class GeneralKeyboardIME(
     override fun onEmojiSelected(emoji: String) {
         if (emoji.isNotEmpty()) {
             recordRecentEmoji(this, emoji)
-            insertEmoji(emoji, currentInputConnection, emojiKeywords, emojiMaxKeywordLength)
+            currentInputConnection?.let { ic ->
+                insertEmoji(emoji, ic, emojiKeywords, emojiMaxKeywordLength)
+            }
         }
     }
 
@@ -869,156 +847,19 @@ abstract class GeneralKeyboardIME(
     // MARK: Input Logic
 
     /**
-     * Handles the logic for the Enter key press. This can either perform an editor action,
-     * commit a newline, or execute a Scribe command depending on the current state.
+     * Handles the logic for the Enter key press.
+     * Delegated to [CommandHandler].
      */
-    fun handleKeycodeEnter() {
-        val inputConnection = currentInputConnection ?: return
-
-        if (currentState == ScribeState.INVALID || currentState == ScribeState.ALREADY_PLURAL) {
-            moveToIdleState()
-            return
-        }
-
-        if (currentState == ScribeState.IDLE || currentState == ScribeState.SELECT_COMMAND) {
-            handleDefaultEnter(inputConnection)
-            return
-        }
-
-        val rawInput = uiManager.getCommandBarTextWithoutCursor().trim().takeIf { it.isNotEmpty() }
-
-        if (rawInput == null) {
-            moveToIdleState()
-        } else {
-            when (currentState) {
-                ScribeState.PLURAL, ScribeState.TRANSLATE -> handlePluralOrTranslateState(rawInput, inputConnection)
-                ScribeState.CONJUGATE -> handleConjugateState(rawInput)
-                else -> handleDefaultEnter(inputConnection)
-            }
-        }
-    }
-
-    /**
-     * Handles the Enter key press when in the plural or translate state.
-     *
-     * @param rawInput The text from the command bar.
-     * @param inputConnection The current input connection.
-     */
-    private fun handlePluralOrTranslateState(
-        rawInput: String,
-        inputConnection: InputConnection,
-    ) {
-        val isAllCaps = rawInput.isNotEmpty() && rawInput.all { !it.isLetter() || it.isUpperCase() }
-
-        val commandModeOutput =
-            when (currentState) {
-                ScribeState.PLURAL -> {
-                    when (val pluralResult = getPluralRepresentation(rawInput)) {
-                        ALREADY_PLURAL_MSG -> {
-                            currentState = ScribeState.ALREADY_PLURAL
-                            refreshUI()
-                            return
-                        }
-
-                        null -> ""
-                        else -> if (isAllCaps) pluralResult.uppercase() else pluralResult
-                    }
-                }
-
-                ScribeState.TRANSLATE -> {
-                    val translation = getTranslation(language, rawInput)
-                    if (isAllCaps) translation.uppercase() else translation
-                }
-
-                else -> ""
-            }
-
-        if (commandModeOutput.isEmpty()) {
-            stateManager.setInvalidState(currentState)
-            refreshUI()
-        } else {
-            applyCommandOutput(commandModeOutput, inputConnection)
-        }
-    }
-
-    /**
-     * Handles the Enter key press when in the `CONJUGATE` state. It fetches the
-     * conjugation data for the entered verb and transitions to the selection view.
-     *
-     * @param rawInput The verb entered in the command bar.
-     */
-    private fun handleConjugateState(rawInput: String) {
-        val searchInput = rawInput.lowercase()
-        currentVerbForConjugation = rawInput
-        val languageAlias = getLanguageAlias(language)
-
-        val tempOutput = dbManagers.conjugateDataManager.getTheConjugateLabels(languageAlias, dataContract, searchInput)
-
-        val isAllCaps = rawInput.isNotEmpty() && rawInput.all { !it.isLetter() || it.isUpperCase() }
-        val isCapitalized = !isAllCaps && rawInput.firstOrNull()?.isUpperCase() == true
-
-        conjugateOutput =
-            if (tempOutput?.isEmpty() == true || tempOutput?.values?.all { it.isEmpty() } == true) {
-                null
-            } else if ((isAllCaps || isCapitalized) && tempOutput != null) {
-                applyCapitalizationToConjugations(tempOutput, isAllCaps)
-            } else {
-                tempOutput
-            }
-
-        conjugateLabels = dbManagers.conjugateDataManager.extractConjugateHeadings(dataContract, searchInput)
-
-        if (conjugateOutput == null) {
-            stateManager.setInvalidState(ScribeState.CONJUGATE)
-        } else {
-            saveConjugateModeType(language)
-            stateManager.moveToState(ScribeState.SELECT_VERB_CONJUNCTION)
-        }
-        refreshUI()
-    }
-
-    /**
-     * Handles the default behavior of the Enter key when not in a special Scribe command mode.
-     *
-     * It performs the editor action or sends a standard Enter key event.
-     *
-     * @param inputConnection The current input connection.
-     */
-    private fun handleDefaultEnter(inputConnection: InputConnection) {
-        val wordBeforeEnter = getLastWordBeforeCursor()
-        val imeOptionsActionId = getImeOptionsActionId()
-        if (imeOptionsActionId != IME_ACTION_NONE) {
-            inputConnection.performEditorAction(imeOptionsActionId)
-        } else {
-            inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-            inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-        }
-        moveToIdleState()
-        if (!wordBeforeEnter.isNullOrEmpty()) {
-            suggestionHandler.processLinguisticSuggestions(wordBeforeEnter)
-        } else {
-            suggestionHandler.clearAllSuggestionsAndHideButtonUI()
-        }
-    }
+    override fun handleKeycodeEnter() = commandHandler.handleKeycodeEnter()
 
     /**
      * Commits the output of a Scribe command (like translation or pluralization) to the input field.
-     *
-     * @param commandModeOutput The string result of the command.
-     * @param inputConnection The current input connection.
+     * Delegated to [CommandHandler].
      */
-    private fun applyCommandOutput(
+    fun applyCommandOutput(
         commandModeOutput: String,
         inputConnection: InputConnection,
-    ) {
-        if (commandModeOutput.isNotEmpty()) {
-            val output = if (!commandModeOutput.endsWith(" ")) "$commandModeOutput " else commandModeOutput
-            inputConnection.commitText(output, COMMIT_TEXT_CURSOR_POSITION)
-            suggestionHandler.processLinguisticSuggestions(output.trim())
-        }
-        uiManager.binding.commandBar.setText("")
-        moveToIdleState()
-    }
+    ) = commandHandler.applyCommandOutput(commandModeOutput, inputConnection)
 
     /**
      * Handles the input of any non-special character key (e.g., letters, numbers, punctuation).
@@ -1028,10 +869,10 @@ abstract class GeneralKeyboardIME(
      * @param keyboardMode The current keyboard mode.
      * @param commandBarState true if input should go to the command bar.
      */
-    fun handleElseCondition(
+    override fun handleElseCondition(
         code: Int,
         keyboardMode: Int,
-        commandBarState: Boolean = false,
+        commandBarState: Boolean,
     ) {
         val currentShiftState = keyboardView?.mKeyboard?.mShiftState ?: SHIFT_OFF
         if (commandBarState) {
@@ -1083,7 +924,7 @@ abstract class GeneralKeyboardIME(
      * @param isCommandBar true` if the deletion should happen in the command bar.
      * @param isLongPress true` if this is a long press/repeat action, false for single tap.
      */
-    fun handleDelete(isLongPress: Boolean = false) {
+    override fun handleDelete(isLongPress: Boolean) {
         val inputConnection = currentInputConnection ?: return
         val effectiveIsCommandBar =
             currentState != ScribeState.IDLE &&
@@ -1120,7 +961,7 @@ abstract class GeneralKeyboardIME(
      * Returns whether the delete key is currently repeating (long press).
      * Delegated to BackspaceHandler.
      */
-    fun isDeleteRepeating() = backspaceHandler.isDeleteRepeating
+    override fun isDeleteRepeating() = backspaceHandler.isDeleteRepeating
 
     /**
      * Sets the flag to indicate that the delete key is currently repeating (long press).
@@ -1136,17 +977,18 @@ abstract class GeneralKeyboardIME(
      * Safely fetches autocomplete suggestions for the given prefix.
      * Returns an empty list if a database or state error occurs.
      */
-    fun getAutocompletions(
-        prefix: String,
-        limit: Int = 3,
+    override fun getAutocompletions(
+        word: String,
+        previousWord: String?,
+        limit: Int,
     ): List<String> {
         if (this::nativeSuggestionEngine.isInitialized) {
-            val nativeCompletions = nativeSuggestionEngine.getAutocompletions(language, prefix, limit)
+            val nativeCompletions = nativeSuggestionEngine.getAutocompletions(language, word, previousWord, limit)
             if (nativeCompletions.isNotEmpty()) {
-                return nativeCompletions
+                return nativeCompletions.map { it.substringBefore("-") }
             }
         }
-        return dataHandler.getAutocompletions(prefix, limit)
+        return dataHandler.getAutocompletions(word, limit)
     }
 
     /**
@@ -1154,7 +996,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return The text content without the trailing cursor character.
      */
-    fun getCommandBarTextWithoutCursor() = uiManager.getCommandBarTextWithoutCursor()
+    override fun getCommandBarTextWithoutCursor() = uiManager.getCommandBarTextWithoutCursor()
 
     /**
      * Sets the command bar text and ensures it ends with the custom cursor.
@@ -1162,9 +1004,9 @@ abstract class GeneralKeyboardIME(
      * @param text The text to set (without cursor).
      * @param cursorAtStart The flag to check if the text in the EditText is empty to determine the position of the cursor
      */
-    fun setCommandBarTextWithCursor(
+    override fun setCommandBarTextWithCursor(
         text: String,
-        cursorAtStart: Boolean = false,
+        cursorAtStart: Boolean,
     ) = uiManager.setCommandBarTextWithCursor(text, cursorAtStart)
 
     /**
@@ -1172,7 +1014,19 @@ abstract class GeneralKeyboardIME(
      *
      * @return The last word as a [String], or null if no word is found.
      */
-    fun getLastWordBeforeCursor(): String? = getText()?.trim()?.split("\\s+".toRegex())?.lastOrNull()
+    override fun getLastWordBeforeCursor(): String? = getText()?.trim()?.split("\\s+".toRegex())?.lastOrNull()
+
+    /**
+     * Extracts the word immediately before the one currently being composed, i.e. the last
+     * completed word preceding the in-progress word at the cursor. Used to give the autocomplete
+     * engine sentence context so it can bias completions instead of scoring the prefix in isolation.
+     *
+     * @return The previous completed word as a [String], or null if there isn't one.
+     */
+    override fun getPreviousWordBeforeCursor(): String? {
+        val words = getText()?.trim()?.split("\\s+".toRegex()) ?: return null
+        return words.getOrNull(words.size - 2)
+    }
 
     /**
      * Retrieves the text immediately preceding the cursor.
@@ -1188,7 +1042,8 @@ abstract class GeneralKeyboardIME(
      *
      * @return The IME action ID, or `IME_ACTION_NONE`.
      */
-    private fun getImeOptionsActionId(): Int =
+    internal fun getImeOptionsActionId(): Int =
+
         if (currentInputEditorInfo.imeOptions and IME_FLAG_NO_ENTER_ACTION != 0) {
             IME_ACTION_NONE
         } else {
@@ -1202,31 +1057,25 @@ abstract class GeneralKeyboardIME(
      *
      * @return The plural form as a string, or null if not found.
      */
-    private fun getPluralRepresentation(word: String?): String? = dataHandler.getPluralRepresentation(language, word)
+    internal fun getPluralRepresentation(word: String?): String? = dataHandler.getPluralRepresentation(language, word)
 
     /**
-     * Retrieves the translation for a given word.
+     * Retrieves the translation of a word or phrase from the database.
      *
-     * @param language The current keyboard language (destination language).
-     * @param commandBarInput The word to be translated (source word).
+     * @param language The target language code.
+     * @param commandBarInput The input text to translate.
      *
-     * @return The translated word as a string.
+     * @return The translated text.
      */
-    private fun getTranslation(
+    internal fun getTranslation(
         language: String,
         commandBarInput: String,
     ): String = dataHandler.getTranslation(language, commandBarInput)
 
     /**
-     * Applies capitalization to all conjugated forms in the output map.
-     * Supports both standard capitalization (first letter) and all capital letters formatting.
-     *
-     * @param conjugations The original map of conjugations from the database.
-     * @param isAllCaps If true, applies all capital letters; if false, capitalizes only first letter.
-     *
      * @return A new map with properly formatted conjugations.
      */
-    private fun applyCapitalizationToConjugations(
+    internal fun applyCapitalizationToConjugations(
         conjugations: MutableMap<String, MutableMap<String, Collection<String>>>,
         isAllCaps: Boolean = false,
     ): MutableMap<String, MutableMap<String, Collection<String>>> {
@@ -1270,7 +1119,7 @@ abstract class GeneralKeyboardIME(
      * @param keyboardMode The current keyboard mode.
      * @param keyboardView The instance of the keyboard view.
      */
-    fun handleKeyboardLetters(
+    override fun handleKeyboardLetters(
         keyboardMode: Int,
         keyboardView: KeyboardView?,
     ) {
@@ -1307,7 +1156,7 @@ abstract class GeneralKeyboardIME(
      * @param keyboardView The instance of the keyboard view.
      * @param context The application context.
      */
-    fun handleModeChange(
+    override fun handleModeChange(
         keyboardMode: Int,
         keyboardView: KeyboardView?,
         context: Context,
@@ -1353,7 +1202,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return A mutable list of emoji suggestions, or null if none are found.
      */
-    fun findEmojisForLastWord(
+    override fun findEmojisForLastWord(
         emojiKeywords: HashMap<String, MutableList<String>>?,
         lastWord: String?,
     ) = lastWord?.let { emojiKeywords?.get(it.lowercase()) }
@@ -1366,7 +1215,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return A list of gender strings (e.g., "masculine", "neuter"), or null if not a known noun.
      */
-    fun findGenderForLastWord(
+    override fun findGenderForLastWord(
         nounKeywords: HashMap<String, List<String>>,
         lastWord: String?,
     ): List<String>? {
@@ -1388,7 +1237,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return true if the word is in the plural set, false otherwise.
      */
-    fun findWhetherWordIsPlural(
+    override fun findWhetherWordIsPlural(
         pluralWords: Set<String>?,
         lastWord: String?,
     ): Boolean = pluralWords?.contains(lastWord?.lowercase()) == true
@@ -1401,7 +1250,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return A list of gender strings (e.g., "masculine", "neuter"), or null if not a known noun.
      */
-    fun getNextWordSuggestions(
+    override fun getNextWordSuggestions(
         wordSuggestions: HashMap<String, List<String>>,
         lastWord: String?,
     ): List<String>? {
@@ -1409,10 +1258,10 @@ abstract class GeneralKeyboardIME(
         if (this::nativeSuggestionEngine.isInitialized) {
             val nativeSuggestions = nativeSuggestionEngine.getNextWordSuggestions(language, lastWord)
             if (nativeSuggestions.isNotEmpty()) {
-                return nativeSuggestions
+                return nativeSuggestions.map { it.substringBefore("-") }
             }
         }
-        return wordSuggestions[lastWord.lowercase()]
+        return wordSuggestions[lastWord.lowercase()]?.map { it.substringBefore("-") }
     }
 
     /**
@@ -1423,7 +1272,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return A mutable list of case suggestions (e.g., "accusative case"), or null if not found.
      */
-    fun getCaseAnnotationForPreposition(
+    override fun getCaseAnnotationForPreposition(
         caseAnnotation: HashMap<String, MutableList<String>>,
         lastWord: String?,
     ) = lastWord?.let { caseAnnotation[it.lowercase()] }
@@ -1438,11 +1287,11 @@ abstract class GeneralKeyboardIME(
      * @param isPlural true if the last word is plural.
      * @param caseAnnotationSuggestion The detected case(s) required by the last word.
      */
-    fun updateAutoSuggestText(
-        nounTypeSuggestion: List<String>? = null,
-        isPlural: Boolean = false,
-        caseAnnotationSuggestion: MutableList<String>? = null,
-        wordSuggestions: List<String>? = null,
+    override fun updateAutoSuggestText(
+        nounTypeSuggestion: List<String>?,
+        isPlural: Boolean,
+        caseAnnotationSuggestion: MutableList<String>?,
+        wordSuggestions: List<String>?,
     ) {
         this.nounTypeSuggestion = nounTypeSuggestion
         this.checkIfPluralWord = isPlural
@@ -1778,7 +1627,11 @@ abstract class GeneralKeyboardIME(
                 val default1 = baseSuggestions.getOrNull(0) ?: ""
                 val default2 = baseSuggestions.getOrNull(1) ?: ""
                 setSuggestionButton(uiManager.binding.conjugateBtn, default1)
-                uiManager.pluralBtn?.let { setSuggestionButton(it, default2) }
+                if (autoSuggestEmojis.isNullOrEmpty()) {
+                    uiManager.pluralBtn?.let { setSuggestionButton(it, default2) }
+                } else {
+                    uiManager.updateButtonVisibility(currentState, true, autoSuggestEmojis)
+                }
             }
             return
         }
@@ -1831,29 +1684,68 @@ abstract class GeneralKeyboardIME(
     // MARK: Autocomplete
 
     /**
-     * Updates autocomplete UI with a new list of suggestions.
-     * Clears it if not idle or no completions.
+     * Pins the word currently being typed into the first (leftmost) suggestion
+     * slot, quoted like most mobile keyboards do to mark it as "what you typed"
+     * rather than a dictionary suggestion. Called immediately on every keystroke
+     * — unlike the completions, it needs no lookup, so it should never lag.
      */
-    fun updateAutocompleteSuggestions(completions: List<String>?) {
-        if (currentState != ScribeState.IDLE) {
+    override fun updateTypedWordSuggestion(word: String?) {
+        if (currentState != ScribeState.IDLE || word.isNullOrEmpty()) {
             uiManager.disableAutoSuggest(language)
-            return
-        }
-        if (completions.isNullOrEmpty()) {
-            uiManager.disableAutoSuggest(language)
+            if (!autoSuggestEmojis.isNullOrEmpty() && emojiAutoSuggestionEnabled) {
+                updateEmojiSuggestion(true, autoSuggestEmojis)
+                updateButtonVisibility(true)
+            }
             return
         }
 
-        val completion1 = completions.getOrNull(0) ?: ""
-        val completion2 = completions.getOrNull(1) ?: ""
-        val completion3 = completions.getOrNull(2) ?: ""
-
-        setAutocompleteButton(uiManager.binding.conjugateBtn, completion1)
-        setAutocompleteButton(uiManager.binding.translateBtn, completion2)
-        setAutocompleteButton(uiManager.pluralBtn!!, completion3)
+        setTypedWordButton(uiManager.binding.translateBtn, word)
+        setAutocompleteButton(uiManager.binding.conjugateBtn, "")
+        if (autoSuggestEmojis.isNullOrEmpty()) {
+            uiManager.pluralBtn?.let { setAutocompleteButton(it, "") }
+        } else {
+            uiManager.updateButtonVisibility(currentState, true, autoSuggestEmojis)
+        }
 
         uiManager.binding.separator1.visibility = View.VISIBLE
         uiManager.binding.separator2.visibility = View.VISIBLE
+    }
+
+    /**
+     * Fills the remaining suggestion slots with dictionary/engine completions.
+     * Clears them (leaving the typed word alone) if not idle.
+     */
+    override fun updateAutocompleteCompletions(completions: List<String>) {
+        if (currentState != ScribeState.IDLE) return
+
+        val completion1 = completions.getOrNull(0) ?: ""
+        val completion2 = completions.getOrNull(1) ?: ""
+
+        setAutocompleteButton(uiManager.binding.conjugateBtn, completion1)
+        if (autoSuggestEmojis.isNullOrEmpty()) {
+            uiManager.pluralBtn?.let { setAutocompleteButton(it, completion2) }
+        } else {
+            uiManager.updateButtonVisibility(currentState, true, autoSuggestEmojis)
+        }
+    }
+
+    /**
+     * Sets up the "what you typed" button: displayed quoted, but tapping it
+     * doesn't re-insert the word (it's already in the text field) — it just
+     * confirms the word with a space, the same as pressing the space bar
+     * would, and moves on to next-word suggestions based on it.
+     */
+    private fun setTypedWordButton(
+        button: Button,
+        word: String,
+    ) {
+        setSuggestionButton(button, "\"$word\"")
+        button.setOnClickListener {
+            currentInputConnection?.commitText(" ", 1)
+            suggestionHandler.processLinguisticSuggestions(word)
+            suggestionHandler.processWordSuggestions(word)
+            moveToIdleState()
+        }
     }
 
     /**
@@ -1884,7 +1776,7 @@ abstract class GeneralKeyboardIME(
      * Clears autocomplete suggestions by resetting the suggestion strip
      * to the default command buttons via the UI Manager.
      */
-    fun clearAutocomplete() {
+    override fun clearAutocomplete() {
         if (this::uiManager.isInitialized) {
             uiManager.disableAutoSuggest(language)
         }
@@ -1896,9 +1788,9 @@ abstract class GeneralKeyboardIME(
      *
      * @return true if a subsequent selection screen is needed, false otherwise.
      */
-    fun returnIsSubsequentRequired(): Boolean = subsequentAreaRequired
+    override fun returnIsSubsequentRequired(): Boolean = subsequentAreaRequired
 
-    fun returnSubsequentData(): List<List<String>> = subsequentData
+    override fun returnSubsequentData(): List<List<String>> = subsequentData
 
     /**
      * Handles a key press on one of the special conjugation keys.
@@ -1909,7 +1801,7 @@ abstract class GeneralKeyboardIME(
      *
      * @return The label of the key that was pressed.
      */
-    fun handleConjugateKeys(
+    override fun handleConjugateKeys(
         code: Int,
         isSubsequentRequired: Boolean,
     ): String? {
@@ -1929,7 +1821,7 @@ abstract class GeneralKeyboardIME(
      * @param data The full dataset of subsequent options.
      * @param word The specific word selected from the primary view, used to filter the data.
      */
-    fun setupConjugateSubView(
+    override fun setupConjugateSubView(
         data: List<List<String>>,
         word: String?,
     ) {
@@ -2001,20 +1893,14 @@ abstract class GeneralKeyboardIME(
      *
      * @param enabled true if suggestions are available.
      */
-    fun updateButtonVisibility(enabled: Boolean) = uiManager.updateButtonVisibility(currentState, enabled, autoSuggestEmojis)
+    override fun updateButtonVisibility(enabled: Boolean) = uiManager.updateButtonVisibility(currentState, enabled, autoSuggestEmojis)
 
-    /**
-     * Updates the text of the suggestion buttons, primarily for displaying emoji suggestions.
-     *
-     * @param enabled true if suggestions are active.
-     * @param emojis The list of emojis to display.
-     */
-    fun updateEmojiSuggestion(
+    override fun updateEmojiSuggestion(
         enabled: Boolean,
         emojis: MutableList<String>?,
     ) = uiManager.updateEmojiSuggestion(currentState, enabled, emojis)
 
-    fun disableAutoSuggest() = uiManager.disableAutoSuggest(language)
+    override fun disableAutoSuggest() = uiManager.disableAutoSuggest(language)
 
     // MARK: Floating Keyboard Integration
 
@@ -2028,7 +1914,7 @@ abstract class GeneralKeyboardIME(
             resources.displayMetrics.widthPixels
         }
 
-    private fun recreateKeyboard() {
+    override fun recreateKeyboard() {
         if (!this::uiManager.isInitialized) return
         val xmlId = getCurrentKeyboardLayoutXML()
         val currentShiftState = keyboard?.mShiftState ?: SHIFT_OFF
@@ -2049,7 +1935,7 @@ abstract class GeneralKeyboardIME(
         floatingKeyboardHandler.initFloatingMode()
     }
 
-    fun toggleFloatingMode() {
+    override fun toggleFloatingMode() {
         floatingKeyboardHandler.toggleFloatingMode()
     }
 
@@ -2073,11 +1959,11 @@ abstract class GeneralKeyboardIME(
         clipboardHandler.onClipboardSuggestionClicked()
     }
 
-    fun hideClipboardSuggestionChip() {
+    override fun hideClipboardSuggestionChip() {
         clipboardHandler.hideClipboardSuggestionChip()
     }
 
-    fun openClipboardPanel() {
+    override fun openClipboardPanel() {
         clipboardHandler.openClipboardPanel()
     }
 
