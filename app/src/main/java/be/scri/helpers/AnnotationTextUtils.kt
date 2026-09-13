@@ -34,8 +34,8 @@ object AnnotationTextUtils {
                 "accusative case" to Pair(color, processValuesForPreposition(language, "Acc")),
                 "dative case" to Pair(color, processValuesForPreposition(language, "Dat")),
                 "locative case" to Pair(color, processValuesForPreposition(language, "Loc")),
-                "Prepositional case" to Pair(color, processValuesForPreposition(language, "Pre")),
-                "Instrumental case" to Pair(color, processValuesForPreposition(language, "Ins")),
+                "prepositional case" to Pair(color, processValuesForPreposition(language, "Pre")),
+                "instrumental case" to Pair(color, processValuesForPreposition(language, "Ins")),
             )
         return suggestionMap[nounType] ?: Pair(R.color.transparent, context.getString(R.string.i18n_app_keyboard_suggestion))
     }
@@ -106,13 +106,13 @@ object AnnotationTextUtils {
      * @return A localized abbreviation suitable for matching against declension titles.
      */
     fun getLocalizedKeyword(language: String, annotationText: String): String {
-        val keyword = when (annotationText) {
+        val keyword = when (annotationText.lowercase()) {
             "accusative case" -> "Acc"
             "dative case" -> "Dat"
             "genitive case" -> "Gen"
             "locative case" -> "Loc"
-            "Prepositional case" -> "Pre"
-            "Instrumental case" -> "Ins"
+            "prepositional case" -> "Pre"
+            "instrumental case" -> "Ins"
             else -> ""
         }
         return processValuesForPreposition(language, keyword)
