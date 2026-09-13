@@ -60,6 +60,7 @@ import be.scri.helpers.data.AutocompletionDataManager
 import be.scri.helpers.recordRecentEmoji
 import be.scri.helpers.ui.KeyboardThemeManager
 import be.scri.helpers.ui.KeyboardUIManager
+import be.scri.latin.utils.Log
 import be.scri.models.ScribeLanguage
 import be.scri.models.ScribeState
 import be.scri.views.KeyboardView
@@ -838,8 +839,10 @@ abstract class GeneralKeyboardIME(
         currentInputConnection?.commitText(text, 1)
         suggestionHandler.processLinguisticSuggestions(text.trim())
 
-        if (currentState == ScribeState.SELECT_VERB_CONJUNCTION) {
+        if (currentState == ScribeState.SELECT_VERB_CONJUNCTION || currentState == ScribeState.SELECT_DECLENSION) {
             selectedConjugationSubCategory = null
+            currentDeclensionSubNodes = null
+            declensionOutput = null
             moveToIdleState()
         }
     }

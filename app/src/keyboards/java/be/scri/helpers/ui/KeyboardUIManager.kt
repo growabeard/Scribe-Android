@@ -523,15 +523,6 @@ class KeyboardUIManager(
                 else -> R.layout.conjugate_grid_2x2
             }
 
-        val layoutResId =
-                when {
-                    isSubSelection -> R.layout.conjugate_grid_2x1
-                    language == "English" && forms.size <= 4 -> R.layout.conjugate_grid_2x2
-                    language in listOf("Russian", "Swedish") && forms.size <= 4 -> R.layout.conjugate_grid_2x2
-                    forms.size > 4 -> R.layout.conjugate_grid_3x2
-                    else -> R.layout.conjugate_grid_2x2
-                }
-
         val layoutInflater = LayoutInflater.from(context)
         val gridContent = layoutInflater.inflate(layoutResId, grid, false) as LinearLayout
         grid.addView(gridContent)

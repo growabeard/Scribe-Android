@@ -216,7 +216,6 @@ class KeyboardThemeManager {
         when (type) {
             "preposition" -> {
                 button.isClickable = true
-                button.setOnClickListener(null)
             }
             else -> {
                 button.isClickable = false

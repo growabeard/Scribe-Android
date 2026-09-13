@@ -344,6 +344,8 @@ class KeyboardUIManagerTest {
             conjugateLabels = setOf("Present"),
             selectedConjugationSubCategory = null,
             currentVerbForConjugation = "be",
+            declensionOutput = null,
+            currentDeclensionSubNodes = null
         )
 
         // Assert
@@ -374,6 +376,8 @@ class KeyboardUIManagerTest {
             conjugateLabels = setOf("Настоящее"),
             selectedConjugationSubCategory = null,
             currentVerbForConjugation = "читать",
+            declensionOutput = null,
+            currentDeclensionSubNodes = null
         )
 
         // Assert
@@ -403,6 +407,8 @@ class KeyboardUIManagerTest {
             conjugateLabels = setOf("Presens"),
             selectedConjugationSubCategory = null,
             currentVerbForConjugation = "vara",
+            declensionOutput = null,
+            currentDeclensionSubNodes = null
         )
 
         // Assert
@@ -432,6 +438,8 @@ class KeyboardUIManagerTest {
             conjugateLabels = setOf("Präsens"),
             selectedConjugationSubCategory = null,
             currentVerbForConjugation = "haben",
+            declensionOutput = null,
+            currentDeclensionSubNodes = null
         )
 
         // Assert
@@ -461,6 +469,8 @@ class KeyboardUIManagerTest {
             conjugateLabels = setOf("Present"),
             selectedConjugationSubCategory = "Singular",
             currentVerbForConjugation = "be",
+            declensionOutput = null,
+            currentDeclensionSubNodes = null
         )
 
         // Assert
@@ -492,6 +502,8 @@ class KeyboardUIManagerTest {
             conjugateLabels = setOf("Present"),
             selectedConjugationSubCategory = null,
             currentVerbForConjugation = "verb",
+            declensionOutput = null,
+            currentDeclensionSubNodes = null
         )
 
         // Assert
